@@ -1,0 +1,45 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # windows-latest is not a preference: capture, GDI+ and the overlay are Windows-only.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      # rustup reads rust-toolchain.toml, so CI and local builds lint with the same clippy.
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+      # No sibling checkout and no submodule -- proto/ is vendored, so this is exactly the build a
+      # user gets from `git clone`. That equivalence is the whole point of the repo being public.
+      - run: cargo build --workspace --all-targets --locked
+      - run: cargo test --workspace --locked --no-fail-fast
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  contracts:
+    # The vendored schema must be byte-identical to the canonical one. Unlike the backend, which
+    # locks a hash because its committed _gen/ is derived output, the artifact here *is* the .proto
+    # -- so a direct diff is the whole check and a lock file would only restate it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {path: agent}
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/rustoverlay-contracts
+          path: contracts
+      - name: Diff the vendored schema against rustoverlay-contracts
+        run: |
+          if ! diff -ru contracts/proto agent/proto; then
+            echo "::error::proto/ has drifted from rustoverlay-contracts; re-vendor it"
+            exit 1
+          fi
+          echo "vendored schema matches contracts@$(git -C contracts rev-parse --short HEAD)"

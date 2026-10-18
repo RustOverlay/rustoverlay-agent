@@ -1,0 +1,49 @@
+[package]
+name = "ro-app"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "rustoverlay-agent"
+path = "src/main.rs"
+
+[dependencies]
+ro-core = { path = "../ro-core" }
+ro-vision = { path = "../ro-vision" }
+ro-net = { path = "../ro-net" }
+ro-capture = { path = "../ro-capture" }
+ro-audio = { path = "../ro-audio" }
+chrono = { version = "0.4.45", default-features = false, features = ["std", "clock"] }
+eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+rayon = "1.12"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = "1.0.228"
+serde_json = { version = "1.0.150", features = ["preserve_order"] }
+tokio = { version = "1.53", features = ["rt-multi-thread", "sync", "time", "macros"] }
+tracing = "0.1.44"
+tracing-appender = "0.2.5"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
+uuid = "1.18"
+velopack = "1.2"
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.62.2"
+features = [
+    "Win32_Foundation",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+]
+
+[build-dependencies]
+embed-manifest = "1.5"
+embed-resource = "3"
+
+[dev-dependencies]
+tempfile = "3.27"

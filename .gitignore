@@ -1,0 +1,20 @@
+bin/
+obj/
+.vs/
+*.user
+*.suo
+TestResults/
+artifacts/
+publish/
+/target/
+# bin/ above is .NET build output; cargo's src/bin/ is source.
+!/crates/*/src/bin/
+
+# Local test server and calibration tooling: they hold RCON credentials.
+/start-test-server.ps1
+/tools/CalibMod/
+/tools/calib/
+
+# Never commit a real output_log.txt — it contains SteamIDs, usernames and server addresses.
+output_log.txt
+!tests/**/Fixtures/*.txt

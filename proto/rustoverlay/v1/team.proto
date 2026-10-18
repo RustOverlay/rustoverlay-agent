@@ -1,0 +1,197 @@
+syntax = "proto3";
+
+package rustoverlay.v1;
+
+option csharp_namespace = "RustOverlay.Contracts.V1";
+
+// Wire contract between the agent and the relay.
+//
+// Agents are installed desktop software and cannot be force-updated, so old versions will talk to
+// a newer relay indefinitely. Field numbers are therefore permanent: never renumber, never reuse,
+// mark anything removed as `reserved`. Additive changes only.
+
+// ---------------------------------------------------------------------------
+// Core values
+// ---------------------------------------------------------------------------
+
+// A 6DoF camera transform sampled from a printpos;printeyes keybind.
+//
+// Rust is Y-up and north is +Z. Angles are sent exactly as the game logs them: degrees in [0, 360)
+// with positive pitch pointing DOWNWARD. Converting to a signed convention is the consumer's job,
+// so that a future change to that convention cannot silently reinterpret archived data.
+message Transform {
+  double x = 1;
+  double y = 2;
+  double z = 3;
+  double raw_pitch = 4;
+  double yaw = 5;
+  double roll = 6;
+  int64 sampled_at_ms = 7; // unix epoch milliseconds, UTC
+}
+
+// One combatlog row. `weapon` is a full prefab path, so weapon identity is exact and needs no name
+// matching. Times are absolute, already resolved against the dump header by the agent.
+message CombatEvent {
+  int64 occurred_at_ms = 1;
+  string attacker = 2;
+  string target = 3;
+  string weapon = 4;
+  string ammo = 5;
+  string area = 6;
+  double distance_metres = 7;
+  double old_hp = 8;
+  double new_hp = 9;
+  string info = 10; // "", "wounded", "killed"
+  int32 hits = 11;
+  double integrity = 12;
+  double travel_seconds = 13;
+  double mismatch_metres = 14;
+  int32 desync = 15;
+
+  // The combatlog does not quote names and names may contain spaces, so the attacker/target split
+  // is occasionally a guess. Consumers should not treat an ambiguous row as authoritative
+  // attribution.
+  bool names_ambiguous = 16;
+}
+
+// Read from the screen, not the log — see phase 3. Present here so field numbers are settled
+// before the capture pipeline exists.
+message Vitals {
+  int64 sampled_at_ms = 1;
+  double health = 2;
+  int32 ammo_in_magazine = 3;
+  int32 ammo_reserve = 4;
+  string active_weapon = 5;
+  int32 meds = 6;
+  double confidence = 7; // template-match confidence, 0-1; low means treat as stale
+  double hydration = 8;
+  double calories = 9;
+}
+
+// One occupied inventory slot. Empty and unreadable slots are omitted entirely, so `index` is
+// positional information and not a list offset.
+message Slot {
+  uint32 index = 1;
+
+  // Candidate item ids. Exactly one when the match is confident; several when the matcher could not
+  // separate look-alikes, which is common for ammo variants. Collapsing that to a single id would
+  // present a coin flip as fact, and a wrong item shown to a teammate is worse than a blank slot.
+  repeated int32 item_id = 2;
+
+  int32 count = 3;
+  bool is_stack = 4; // false means a magazine count
+}
+
+// Timestamped per container, not per loadout: the belt is legible in normal play, but the main
+// grid, wear row and backpack can only be read while the inventory panel is open and go stale the
+// moment it shuts. A consumer must present them against read_at_ms rather than as current.
+message Container {
+  int64 read_at_ms = 1;
+  repeated Slot slots = 2;
+}
+
+// Read from the screen, like Vitals. Sent whole rather than as deltas: the relay drops frames under
+// queue pressure by design, so an incremental stream would desynchronise permanently.
+message Loadout {
+  int64 sampled_at_ms = 1;
+  Container belt = 2;
+  Container main = 3;
+  Container wear = 4;
+  Container backpack = 5;
+
+  // Belt index 0-5. Absent when nothing is held, or when the belt is too uniformly blue to tell.
+  optional uint32 held_slot = 6;
+}
+
+message Member {
+  uint64 steam_id = 1;
+  string display_name = 2;
+  bool online = 3;
+
+  // Populated as each source reports; a member may have a transform and no vitals, or vice versa.
+  Transform transform = 4;
+  Vitals vitals = 5;
+
+  // True when the agent read the name while steam.use_steam_nicknames was set, in which case the
+  // name is a local alias and will not resolve against a Steam profile.
+  bool name_is_local_alias = 6;
+
+  Loadout loadout = 7;
+}
+
+// ---------------------------------------------------------------------------
+// Agent → relay
+// ---------------------------------------------------------------------------
+
+message JoinRoom {
+  string room = 1;
+  string token = 2; // per-install token, minted on first run; never a Steam credential
+  uint64 steam_id = 3;
+  string display_name = 4;
+  string agent_version = 5;
+
+  // The game server the player is on. The relay geolocates this to pick a region, so a whole squad
+  // lands on the same node.
+  string game_server_host = 6;
+  uint32 game_server_port = 7;
+}
+
+message ClientFrame {
+  uint32 seq = 1;
+
+  oneof payload {
+    JoinRoom join = 2;
+    Transform transform = 3;
+    CombatEvent combat = 4;
+    Vitals vitals = 5;
+    Heartbeat heartbeat = 6;
+    Loadout loadout = 7;
+  }
+}
+
+// Cloudflare closes idle WebSockets at roughly 100s, so this is sent regardless of telemetry.
+message Heartbeat {
+  int64 sent_at_ms = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Relay → agent
+// ---------------------------------------------------------------------------
+
+message JoinAccepted {
+  string room = 1;
+  string region = 2;
+  int64 server_time_ms = 3;
+}
+
+// Full room state. Sent on join and periodically as a correction, so a client that missed an
+// incremental update recovers without reconnecting.
+message TeamSnapshot {
+  int64 taken_at_ms = 1;
+  repeated Member members = 2;
+}
+
+// One member changed. The common case; a snapshot is the fallback.
+message MemberUpdate {
+  uint64 steam_id = 1;
+  Transform transform = 2;
+  Vitals vitals = 3;
+  bool online = 4;
+  Loadout loadout = 5;
+}
+
+message Error {
+  string code = 1; // machine-readable: "bad_token", "room_full", "version_unsupported"
+  string message = 2;
+}
+
+message ServerFrame {
+  oneof payload {
+    JoinAccepted joined = 1;
+    TeamSnapshot snapshot = 2;
+    MemberUpdate member_update = 3;
+    CombatEvent combat = 4;
+    Heartbeat heartbeat = 5;
+    Error error = 6;
+  }
+}

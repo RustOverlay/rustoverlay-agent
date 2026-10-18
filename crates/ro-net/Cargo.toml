@@ -1,0 +1,47 @@
+[package]
+name = "ro-net"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ro-core = { path = "../ro-core" }
+ro-vision = { path = "../ro-vision" }
+base64 = "0.22"
+chrono ={ version = "0.4.45", default-features = false, features = ["std", "serde"] }
+futures-util = { version = "0.3.31", default-features = false, features = ["sink", "std"] }
+getrandom = "0.4"
+http = "1.5"
+# The proxy URL parser and NO_PROXY matcher reqwest uses, reused for the relay's CONNECT tunnel.
+hyper-util = { version = "0.1.21", default-features = false, features = ["client-proxy"] }
+indexmap = "2.14"
+open = "5.4"
+percent-encoding = "2.3"
+prost = "0.14"
+# Native roots alongside webpki: AV HTTPS scanning and corporate inspection roots live only in the
+# Windows store. system-proxy reads the Windows proxy settings, as HttpClient.DefaultProxy did.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "rustls-tls-native-roots", "system-proxy"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+sha2 = "0.11"
+tokio = { version = "1.53", features = ["sync", "time", "net", "io-util", "macros", "rt"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "handshake", "rustls-tls-webpki-roots", "rustls-tls-native-roots"] }
+tracing = "0.1.44"
+url = { version = "2.5", features = ["serde"] }
+uuid = { version = "1.18", features = ["serde"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
+windows-registry = "0.6"
+
+[build-dependencies]
+prost-build = "0.14"
+protox = "0.10"
+
+[dev-dependencies]
+tempfile = "3.27"
+tokio = { version = "1.53", features = ["sync", "time", "net", "io-util", "macros", "rt", "rt-multi-thread"] }
+wiremock = "0.6"

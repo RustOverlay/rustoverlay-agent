@@ -1,0 +1,74 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  id-token: write      # provenance attestation signs against the workflow's OIDC identity
+  attestations: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      # vpk is a .NET tool; the agent itself no longer needs the runtime.
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: "9.0.x"}
+
+      # The tag is the only record of the version, so a release cannot disagree with its own name.
+      - id: ver
+        shell: bash
+        run: |
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          echo "RUSTOVERLAY_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      # Keeps the C# exe name: existing installs' shortcuts and updates resolve --mainExe by name.
+      - name: Publish
+        shell: bash
+        run: |
+          cargo build --release --locked -p ro-app
+          mkdir publish
+          cp target/release/rustoverlay-agent.exe publish/RustOverlay.Agent.exe
+          cp crates/ro-app/appsettings.json publish/
+
+      - run: dotnet tool install -g vpk
+
+      # Without the previous releases present, vpk emits a full package and no delta, so every user
+      # re-downloads the whole runtime for a one-line fix.
+      - name: Fetch previous releases for delta generation
+        run: >
+          vpk download github
+          --repoUrl https://github.com/${{ github.repository }}
+          --token ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pack
+        run: >
+          vpk pack
+          --packId RustOverlay
+          --packTitle "RustOverlay Agent"
+          --packAuthors RustOverlay
+          --packVersion ${{ steps.ver.outputs.version }}
+          --packDir publish
+          --mainExe RustOverlay.Agent.exe
+          --icon crates/ro-app/assets/icon.ico
+
+      # stack.md §2 requires that the installer provably matches the public source. An attestation
+      # binds this artifact to this workflow, commit and runner, which a checksum in a release note
+      # cannot do -- verify with `gh attestation verify RustOverlay-win-Setup.exe -R <repo>`.
+      # GitHub refuses attestations on a private repo on this plan; it applies once public as §2 requires.
+      - uses: actions/attest-build-provenance@v2
+        if: ${{ !github.event.repository.private }}
+        with:
+          subject-path: Releases/*Setup.exe
+
+      - name: Upload
+        run: >
+          vpk upload github
+          --repoUrl https://github.com/${{ github.repository }}
+          --token ${{ secrets.GITHUB_TOKEN }}
+          --publish
+          --releaseName "RustOverlay Agent ${{ steps.ver.outputs.version }}"
+          --tag ${{ github.ref_name }}

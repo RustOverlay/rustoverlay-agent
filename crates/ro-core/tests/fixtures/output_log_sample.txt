@@ -1,0 +1,36 @@
+2026-08-02T21:30:17.120Z|0x6e08|Input System module state changed to: Initialized.
+2026-08-02T21:30:17.434Z|0x6e08|Initialize engine version: 6000.3.15x1-8 (85d38ff9011b)
+2026-08-02T21:30:39.194Z|0x6e08|SteamID: 76561190000000001 (testplayer)
+UnityEngine.DebugLogHandler:Internal_Log(LogType, LogOption, String, Object)
+UnityEngine.Debug:Log(Object)
+
+2026-08-02T22:26:57.337Z|0x6e08|time    attacker  target weapon ammo area    distance old_hp new_hp info    hits integrity travel mismatch desync
+344.98s polarbear you    N/A    N/A  generic 3.6m     55.9   10.9           0    0.00      0.00s  0.00m    0
+341.92s polarbear you    N/A    N/A  generic 1.0m     10.2   8.0    wounded 0    0.00      0.00s  0.00m    0
+338.82s polarbear you    N/A    N/A  generic 1.0m     8.0    2.0    killed  0    0.00      0.00s  0.00m    0
+UnityEngine.DebugLogHandler:Internal_Log(LogType, LogOption, String, Object)
+UnityEngine.Logger:Log(LogType, Object)
+Client:%7add52c18fed5dbafbceafa8bcced20c138533e6(%82600b48a279eb7e76a74dd6d2411e58a5a422e4)
+%81fccaa25850c1aad153f3495fdba74f2308d41a:%c8d978f80bc4e736f7b1a7cf6c6efaf2ca9745be()
+Client:Update()
+
+2026-08-02T22:32:47.464Z|0x6e08|Entity: player
+Name: testplayer
+SteamID: 76561190000000001
+CombatZone: False
+Sleeping: False
+Wounded: True
+Connected: True
+SafeZone: False
+Incapacitated: False
+2026-08-02T22:40:02.100Z|0x6e08|(-1234.56, 12.34, 987.65)
+2026-08-02T22:40:02.140Z|0x6e08|(351.98, 274.51, 0.00)
+2026-08-02T22:48:12.936Z|0x6e08|time     attacker  target weapon ammo area    distance old_hp new_hp info    hits integrity travel mismatch desync
+1620.59s polarbear you    N/A    N/A  generic 3.6m     55.9   10.9           0    0.00      0.00s  0.00m    0
+1617.52s polarbear you    N/A    N/A  generic 1.0m     10.2   8.0    wounded 0    0.00      0.00s  0.00m    0
+1614.43s polarbear you    N/A    N/A  generic 1.0m     8.0    2.0    killed  0    0.00      0.00s  0.00m    0
+1210.11s Big Bad Wolf you assets/prefabs/weapons/ak47u/ak47u.entity.prefab riflebullet head 84.2m 100.0 12.5 killed 1 1.00 0.14s 0.02m 47
+UnityEngine.DebugLogHandler:Internal_Log(LogType, LogOption, String, Object)
+Client:Update()
+
+2026-08-02T22:48:23.444Z|0x6e08|Opening Log Folder (C:\Program Files (x86)\Steam\steamapps\common\Rust)
