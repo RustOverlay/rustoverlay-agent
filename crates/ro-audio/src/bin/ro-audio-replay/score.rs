@@ -288,20 +288,28 @@ pub fn per_shot_csv(outcomes: &[Outcome<'_>]) -> String {
 /// Every detection with its delay after the latest shot fired before it and whether it matched one.
 pub fn detections_csv(shots: &[Shot], located: &[Located], outcomes: &[Outcome<'_>]) -> String {
     let matched: Vec<i64> = outcomes.iter().filter_map(|o| o.found.map(|l| l.detection.utc_100ns)).collect();
-    let mut out = String::from("utc_ms,after_shot_ms,matched,background_db,rise_db,level100_db,ild20_db,hi_lo_db,early_late_db\n");
+    let mut out = String::from(
+        "utc_ms,after_shot_ms,matched,background_db,rise_db,level100_db,ild20_db,hi_lo_db,early_late_db,\
+         attack_ms,decay_db,crest_db,centroid_hz,flatness_db\n",
+    );
     for l in located {
         let (t, f) = (l.detection.utc_100ns as f64 / 10_000.0, &l.detection.features);
         let after = shots.iter().filter(|s| s.utc_ms <= t).map(|s| t - s.utc_ms).reduce(f64::min).unwrap_or(f64::NAN);
         let _ = writeln!(
             out,
-            "{t:.1},{after:.1},{},{:.1},{:.1},{:.2},{:.2},{:.1},{:.1}",
+            "{t:.1},{after:.1},{},{:.1},{:.1},{:.2},{:.2},{:.1},{:.1},{:.0},{:.1},{:.1},{:.0},{:.1}",
             matched.contains(&l.detection.utc_100ns),
             l.detection.background_db,
             f.rise_db,
             f.level100_db,
             f.ild20_db,
             f.hi_lo_db,
-            f.early_late_db
+            f.early_late_db,
+            f.attack_ms,
+            f.decay_db,
+            f.crest_db,
+            f.centroid_hz,
+            f.flatness_db
         );
     }
     out

@@ -16,6 +16,16 @@ pub struct ShotFeatures {
     pub early_late_db: f32,
     /// Loudest 1 ms envelope block in the 100 ms window over the background, dB.
     pub rise_db: f32,
+    /// Onset to the loudest 1 ms block, ms. A report peaks within a few ms.
+    pub attack_ms: f32,
+    /// Loudest block over the mean of 60–100 ms, dB: how far the sound has died away.
+    pub decay_db: f32,
+    /// Loudest block over the 100 ms mean, dB: impulsive vs sustained.
+    pub crest_db: f32,
+    /// Spectral centroid, 0.1–12 kHz, of the Hann-windowed first 50 ms, Hz.
+    pub centroid_hz: f32,
+    /// Spectral flatness over the same bins, dB (0 = white noise, very negative = tonal).
+    pub flatness_db: f32,
 }
 
 /// Precomputed windows and twiddles for one sample rate.
@@ -30,6 +40,8 @@ pub struct FeatureExtractor {
     sin: Vec<f64>,
     lo_bins: Vec<usize>,
     hi_bins: Vec<usize>,
+    /// (bin, Hz) for the shape features' 0.1–12 kHz span.
+    shape_bins: Vec<(usize, f64)>,
 }
 
 impl FeatureExtractor {
@@ -41,8 +53,21 @@ impl FeatureExtractor {
         let sin = (0..n50).map(|j| (2.0 * PI * j as f64 / n50 as f64).sin()).collect();
         // numpy.fft.rfftfreq: k / (n * (1 / rate)).
         let freq = |k: usize| k as f64 / (n50 as f64 * (1.0 / f64::from(rate)));
-        let bins = |lo: f64, hi: f64| (0..=n50 / 2).filter(|&k| freq(k) >= lo && freq(k) < hi).collect();
-        Self { rate, n20, n50, n100, hop: samples(1), hann, cos, sin, lo_bins: bins(100.0, 800.0), hi_bins: bins(2000.0, 8000.0) }
+        let bins = |lo: f64, hi: f64| -> Vec<usize> { (0..=n50 / 2).filter(|&k| freq(k) >= lo && freq(k) < hi).collect() };
+        let shape_bins = bins(100.0, 12_000.0).into_iter().map(|k| (k, freq(k))).collect();
+        Self {
+            rate,
+            n20,
+            n50,
+            n100,
+            hop: samples(1),
+            hann,
+            cos,
+            sin,
+            lo_bins: bins(100.0, 800.0),
+            hi_bins: bins(2000.0, 8000.0),
+            shape_bins,
+        }
     }
 
     pub fn rate(&self) -> u32 {
@@ -69,11 +94,20 @@ impl FeatureExtractor {
         let windowed: Vec<f64> = mono[..self.n50].iter().zip(&self.hann).map(|(v, w)| v * w).collect();
         let band = |bins: &[usize]| 10.0 * (bins.iter().map(|&k| self.power(&windowed, k)).sum::<f64>() + 1e-20).log10();
 
-        let peak = left[..self.n100]
+        let envelope: Vec<f64> = left[..self.n100]
             .chunks_exact(self.hop)
             .zip(right[..self.n100].chunks_exact(self.hop))
             .map(|(l, r)| block_power(l, r))
-            .fold(0.0, f64::max);
+            .collect();
+        let (peak_at, peak) = envelope.iter().copied().enumerate().fold((0, 0.0), |best, (i, p)| if p > best.1 { (i, p) } else { best });
+        let mean = |blocks: &[f64]| blocks.iter().sum::<f64>() / blocks.len().max(1) as f64;
+        let tail = &envelope[(envelope.len() * 3 / 5).min(envelope.len())..];
+
+        let spectrum: Vec<(f64, f64)> = self.shape_bins.iter().map(|&(k, hz)| (hz, self.power(&windowed, k) + 1e-30)).collect();
+        let total: f64 = spectrum.iter().map(|(_, p)| p).sum();
+        let centroid = spectrum.iter().map(|(hz, p)| hz * p).sum::<f64>() / total;
+        let log_mean = spectrum.iter().map(|(_, p)| p.ln()).sum::<f64>() / spectrum.len().max(1) as f64;
+        let flatness = 10.0 * (log_mean.exp() / (total / spectrum.len().max(1) as f64)).log10();
 
         ShotFeatures {
             ild20_db: ild as f32,
@@ -81,6 +115,11 @@ impl FeatureExtractor {
             hi_lo_db: (band(&self.hi_bins) - band(&self.lo_bins)) as f32,
             early_late_db: (10.0 * ((early + 1e-20) / (late + 1e-20)).log10()) as f32,
             rise_db: (db_power(peak) - db_power(background_power)) as f32,
+            attack_ms: peak_at as f32,
+            decay_db: (db_power(peak) - db_power(mean(tail))) as f32,
+            crest_db: (db_power(peak) - db_power(mean(&envelope))) as f32,
+            centroid_hz: centroid as f32,
+            flatness_db: flatness as f32,
         }
     }
 

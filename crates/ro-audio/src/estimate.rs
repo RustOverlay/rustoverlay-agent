@@ -143,7 +143,14 @@ mod tests {
             onset_frame: 0,
             utc_100ns: 0,
             background_db: -70.0,
-            features: ShotFeatures { ild20_db: ild, level100_db: level, hi_lo_db: hi_lo, early_late_db: early_late, rise_db: 30.0 },
+            features: ShotFeatures {
+                ild20_db: ild,
+                level100_db: level,
+                hi_lo_db: hi_lo,
+                early_late_db: early_late,
+                rise_db: 30.0,
+                ..ShotFeatures::default()
+            },
         }
     }
 
