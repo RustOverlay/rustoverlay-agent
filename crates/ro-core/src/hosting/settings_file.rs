@@ -12,15 +12,22 @@ use serde_json::{Map, Value};
 pub use super::environment_layer::{ENV_PREFIX, environment_layer};
 use crate::invariant::{parse_bool, parse_double};
 
-/// `%LOCALAPPDATA%/RustOverlay` — per-user, because the install directory is not writable for a
-/// standard user.
+/// `%LOCALAPPDATA%/RustOverlayData`, per-user. Gotcha: never `%LOCALAPPDATA%/RustOverlay`, which is
+/// Velopack's install root — Setup and uninstall empty it (see `data_migration`).
 pub fn data_directory() -> PathBuf {
-    let base = std::env::var_os("LOCALAPPDATA")
+    local_app_data().join("RustOverlayData")
+}
+
+/// Where data lived before 0.2.1, inside the install root.
+pub fn legacy_data_directory() -> PathBuf {
+    local_app_data().join("RustOverlay")
+}
+
+fn local_app_data() -> PathBuf {
+    std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local").join("share")))
-        .unwrap_or_default();
-
-    base.join("RustOverlay")
+        .unwrap_or_default()
 }
 
 #[derive(Debug)]

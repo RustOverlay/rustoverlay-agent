@@ -1,7 +1,7 @@
 # Matcher score
 
 `bash crates/belt-corpus/score/run.sh` (a few minutes; run it in the background) builds `belt-corpus`,
-scores six configurations of the `%LOCALAPPDATA%\RustOverlay\belt-corpus*` corpora, and compares each
+scores six configurations of the `%LOCALAPPDATA%\RustOverlayData\belt-corpus*` corpora, and compares each
 one's correct and WRONG counts with `baseline.txt`. It fails when any configuration gets more WRONG
 reads than its baseline: an abstention costs a blank cell, a wrong item misleads the team.
 

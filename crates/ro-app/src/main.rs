@@ -24,7 +24,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use eframe::egui::ViewportBuilder;
-use ro_core::hosting::settings_file::data_directory;
+use ro_core::hosting::data_migration::migrate_legacy_data;
+use ro_core::hosting::settings_file::{data_directory, legacy_data_directory};
 
 use crate::app::{AgentApp, MAIN_SIZE, MAIN_TITLE, SIGN_IN_TITLE};
 use crate::host::Host;
@@ -42,6 +43,7 @@ fn main() -> ExitCode {
     startup::mark("velopack");
 
     let data_directory = data_directory();
+    let migrated = migrate_legacy_data(&legacy_data_directory(), &data_directory);
     let options = match settings::load(&data_directory) {
         Ok(options) => options,
         Err(e) => return fatal(&data_directory, &format!("The agent's settings could not be read: {e}")),
@@ -50,6 +52,9 @@ fn main() -> ExitCode {
     let _log = logging::init(&data_directory, &options.log_filter);
     install_panic_hook(data_directory.clone());
     tracing::info!(version = ro_net::AGENT_VERSION, "Agent starting");
+    for line in &migrated {
+        tracing::info!("Data migration: {line}");
+    }
     interop::thread_priority::lower_rayon_pool();
     startup::mark("settings+logging");
 

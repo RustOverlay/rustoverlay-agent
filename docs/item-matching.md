@@ -1094,7 +1094,7 @@ only has to keep the right item in the top 64, and gating twice is another way t
 
 ## The capture corpus
 
-`%LOCALAPPDATA%\RustOverlay\belt-corpus` — 250 belt strips, ~30 MB, recorded in about eight minutes
+`%LOCALAPPDATA%\RustOverlayData\belt-corpus` — 250 belt strips, ~30 MB, recorded in about eight minutes
 of flying with the hotbar held fixed. Only the strip is kept: a full frame is ~3 MB and the belt is
 all that is measured, and the filename carries the frame size and the strip origin so slot rects
 rebuild exactly.

@@ -87,7 +87,7 @@ the backgrounds they were measured on, and these are how that gets measured — 
 
 The **Settings** tab covers what you are likely to want: the three overlay binds, the overlay's
 size, the inventory grids' size on top of that, and where it all sits in the game window. Changes apply as you make them and are written to
-`%LOCALAPPDATA%\RustOverlay\settings.json`, so it is worth having Rust running behind the window
+`%LOCALAPPDATA%\RustOverlayData\settings.json`, so it is worth having Rust running behind the window
 while you drag the size slider.
 
 Everything else is configuration. Defaults live in `appsettings.json` next to the executable;
@@ -103,7 +103,7 @@ RUSTOVERLAY_Overlay__Inspect__CycleKey=c       # tapped while held, to change te
 RUSTOVERLAY_Serilog__MinimumLevel__Default=Debug
 ```
 
-Logs are written to `%LOCALAPPDATA%\RustOverlay\logs`, rolling daily, seven days retained.
+Logs are written to `%LOCALAPPDATA%\RustOverlayData\logs`, rolling daily, seven days retained.
 
 ## The overlay
 

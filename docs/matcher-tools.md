@@ -4,7 +4,7 @@ Not part of the agent. These exist to measure the icon matcher against the real 
 matcher's thresholds are only as good as the backgrounds they were calibrated on — and every gap
 found so far came from a background nobody had captured yet. See docs/item-matching.md.
 
-Neither tool writes into the repo. Captures land in `%LOCALAPPDATA%\RustOverlay\belt-corpus`, and
+Neither tool writes into the repo. Captures land in `%LOCALAPPDATA%\RustOverlayData\belt-corpus`, and
 they must stay there: they are screenshots of a real session.
 
 ## belt-recorder
@@ -15,7 +15,7 @@ Records the belt row while Rust is focused.
 cargo run --release -p belt-recorder -- [output-dir] [frames] [minutes]
 ```
 
-Defaults to `%LOCALAPPDATA%\RustOverlay\belt-corpus`, 250 frames, 25 minutes; it stops at whichever
+Defaults to `%LOCALAPPDATA%\RustOverlayData\belt-corpus`, 250 frames, 25 minutes; it stops at whichever
 comes first. Start it, alt-tab into Rust, and fly.
 
 - **Only while Rust is focused.** Capture reads the composited desktop, so this is a privacy control
@@ -48,7 +48,7 @@ cargo run --release -p belt-corpus -- <corpus-dir> [truth,csv] [--from HHmmss] [
 `truth` is the six belt slots in order, using `-` for a slot known to be empty:
 
 ```
-cargo run --release -p belt-corpus -- %LOCALAPPDATA%\RustOverlay\belt-corpus rock,knife.bone,rifle.ak,rifle.ak,syringe.medical,-
+cargo run --release -p belt-corpus -- %LOCALAPPDATA%\RustOverlayData\belt-corpus rock,knife.bone,rifle.ak,rifle.ak,syringe.medical,-
 ```
 
 `crates/belt-corpus/score/run.sh` runs every recorded corpus at once and fails on any rise in wrong

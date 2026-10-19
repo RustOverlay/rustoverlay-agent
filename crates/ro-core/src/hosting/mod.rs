@@ -7,6 +7,7 @@ mod environment_layer;
 mod event_queue;
 mod game_event_bus;
 mod json_text;
+pub mod data_migration;
 pub mod log_tail;
 mod overlay_options;
 mod overlay_settings_store;

@@ -5,7 +5,7 @@ set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../../.." && pwd)
 WORK=${SCORE_WORK:-$REPO/target/score}
-C="$LOCALAPPDATA/RustOverlay"
+C="$LOCALAPPDATA/RustOverlayData"
 BIN="${CARGO_TARGET_DIR:-$REPO/target}/release/belt-corpus.exe"
 BASELINE="$HERE/baseline.txt"
 build=1 update=0
