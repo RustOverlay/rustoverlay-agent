@@ -5,6 +5,8 @@ session in `%LOCALAPPDATA%\RustOverlayData\audio-corpus` through the live locato
 `baseline.txt`. It fails if a session finds fewer shots, raises more false positives, or surfaces more of the
 player's own gunshots. Bearing and distance errors are printed for review but don't gate the run, because a
 recall gain can add hard shots that widen them. `--update` rewrites the baseline after a run that passes.
+`--accept` rewrites it over flagged regressions. Use it only for a trade-off taken on purpose, and record
+why in the commit.
 
 The corpus only grows. Every change to the detector or estimator is scored against every session ever
 recorded, so a session never needs re-recording.

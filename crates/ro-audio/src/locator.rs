@@ -5,6 +5,10 @@ use crate::{estimate, AudioBlock, AudioProfile, Detection, Detector, ShotEstimat
 /// (replay: a cluster ~170 ms after onset, median 9 dB down). Repeat fire from one spot is level.
 const ECHO_WINDOW_100NS: i64 = 10_000_000;
 const ECHO_DROP_DB: f32 = 4.0;
+/// A report's second layer re-triggers 60–74 ms after its onset, 2.4–4 dB down (replay, single shots);
+/// the next round of a burst lands within ±2 dB of the last.
+const LAYER_WINDOW_100NS: i64 = 800_000;
+const LAYER_DROP_DB: f32 = 2.0;
 /// Brighter than an AK report (max −4 dB), which flybys and impacts usually are. Some reports are
 /// brighter still, so a bright onset is a report anyway when no shot was accepted just before it and
 /// it is either barely bright (a silenced shot, about 0 dB) or louder than any flyby.
@@ -97,12 +101,11 @@ impl Locator {
         if f.hi_lo_db > MAX_REPORT_HI_LO_DB && !self.is_bright_report(detection) {
             return Some(Rejection::Bright);
         }
-        match self.last {
-            Some((at, level)) if detection.utc_100ns - at < ECHO_WINDOW_100NS && f.level100_db <= level - ECHO_DROP_DB => {
-                Some(Rejection::Echo)
-            }
-            _ => None,
-        }
+        let (at, level) = self.last?;
+        let since = detection.utc_100ns - at;
+        let echo = since < ECHO_WINDOW_100NS && f.level100_db <= level - ECHO_DROP_DB;
+        let layer = since < LAYER_WINDOW_100NS && f.level100_db <= level - LAYER_DROP_DB;
+        (echo || layer).then_some(Rejection::Echo)
     }
 
     /// See `MAX_REPORT_HI_LO_DB`.

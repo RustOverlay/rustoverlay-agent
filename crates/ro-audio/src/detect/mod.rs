@@ -15,7 +15,9 @@ pub const ONSET_RISE_DB: f64 = 12.0;
 /// Background window: [onset − 300 ms, onset − 50 ms), as shots_report's [fire − 300, fire − 50).
 const BACKGROUND_FROM_MS: usize = 300;
 const BACKGROUND_TO_MS: usize = 50;
-const REFRACTORY_MS: u64 = 150;
+/// Under every automatic weapon's round spacing (MP5 ~100 ms, AK ~133 ms): longer merged a burst into
+/// its first round. A report's own later layers are rejected as echoes by `Locator`, not here.
+const REFRACTORY_MS: u64 = 60;
 /// The onset block must also jump this far over the preceding `RECENT_MS`: a shot's own decaying
 /// tail stays 12 dB over the pre-shot background for ~0.5 s and would otherwise retrigger.
 const LOCAL_RISE_DB: f64 = 6.0;

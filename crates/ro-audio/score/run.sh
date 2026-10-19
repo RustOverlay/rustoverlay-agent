@@ -1,6 +1,7 @@
 #!/bin/bash
 # Gunshot locator accuracy over every audio-corpus session, against baseline.txt. See README.md.
-# usage: run.sh [--no-build] [--update]    (reports land in $SCORE_WORK, default <repo>/target/audio-score)
+# usage: run.sh [--no-build] [--update | --accept]    (reports land in $SCORE_WORK, default <repo>/target/audio-score)
+#   --update rewrites the baseline after a passing run; --accept rewrites it even over flagged regressions.
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../../.." && pwd)
@@ -8,9 +9,9 @@ WORK=${SCORE_WORK:-$REPO/target/audio-score}
 CORPUS="$LOCALAPPDATA/RustOverlayData/audio-corpus"
 BIN="${CARGO_TARGET_DIR:-$REPO/target}/release/ro-audio-replay.exe"
 BASELINE="$HERE/baseline.txt"
-build=1 update=0
+build=1 update=0 accept=0
 for arg in "$@"; do
-  case "$arg" in --no-build) build=0 ;; --update) update=1 ;; *) echo "unknown argument $arg"; exit 2 ;; esac
+  case "$arg" in --no-build) build=0 ;; --update) update=1 ;; --accept) accept=1 ;; *) echo "unknown argument $arg"; exit 2 ;; esac
 done
 
 if [ $build -eq 1 ]; then
@@ -50,7 +51,7 @@ while read -r name recall shots fp own_s own_t bp50 bp90 dp50 dp90; do
   echo "$line"
 done < "$WORK/summary.txt"
 
-if [ $update -eq 1 ] && [ $fail -eq 0 ]; then
+if { [ $update -eq 1 ] && [ $fail -eq 0 ]; } || [ $accept -eq 1 ]; then
   cp "$WORK/summary.txt" "$BASELINE" && echo "baseline updated"
 fi
 [ $fail -eq 0 ] && echo "SCORE OK" || echo "SCORE FAILED (reports in $WORK)"

@@ -54,7 +54,7 @@ fn run(args: &[String]) -> Result<(), String> {
         })
         .collect();
 
-    let minutes = recording.samples.len() as f64 / 2.0 / f64::from(recording.rate) / 60.0;
+    let minutes = recording.frames as f64 / f64::from(recording.rate) / 60.0;
     let in_recording: Vec<score::Shot> = shots.into_iter().filter(|s| covers(&recording, s.utc_ms)).collect();
     let matched = score::match_shots(&in_recording, &located);
 

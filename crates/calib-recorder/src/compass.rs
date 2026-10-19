@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use ro_capture::{DuplicationFrameSource, FallbackFrameSource, Frame, FrameSource, ScreenFrameSource};
+use ro_capture::{rust_window, DuplicationFrameSource, FallbackFrameSource, Frame, FrameSource, ScreenFrameSource};
 use ro_vision::hud::FrameBuffer;
 
 const INTERVAL: Duration = Duration::from_millis(50);
@@ -45,17 +45,19 @@ fn record(dir: &Path, stop: &AtomicBool) -> Result<u64, String> {
     let frames = FallbackFrameSource::new(Box::new(DuplicationFrameSource::new()), Box::new(ScreenFrameSource::new()));
     let index_path = dir.join("index.csv");
     let mut index = BufWriter::new(File::create(&index_path).map_err(|e| format!("{}: {e}", index_path.display()))?);
-    writeln!(index, "seq,utc_100ns,client_width,client_height,strip_x,strip_width,strip_height").map_err(|e| e.to_string())?;
+    // `foreground` 0 means the grab shows whatever covered Rust (an alt-tabbed browser), not the strip.
+    writeln!(index, "seq,utc_100ns,client_width,client_height,strip_x,strip_width,strip_height,foreground").map_err(|e| e.to_string())?;
 
     let mut seq = 0u64;
     let mut next = Instant::now();
     while !stop.load(Ordering::SeqCst) {
         let mut saved = Ok(None);
+        let foreground = u8::from(rust_window::is_foreground());
         // A failed grab (Rust minimised, device lost) is a gap in the strip, not a reason to stop recording audio.
         let _ = frames.read(&mut |frame| saved = save_strip(frame, &dir.join(format!("{seq:06}.png"))));
         if let Some((x, width, height, client)) = saved? {
             let utc = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0) / 100;
-            writeln!(index, "{seq},{utc},{},{},{x},{width},{height}", client.0, client.1).map_err(|e| e.to_string())?;
+            writeln!(index, "{seq},{utc},{},{},{x},{width},{height},{foreground}", client.0, client.1).map_err(|e| e.to_string())?;
             seq += 1;
         }
         next += INTERVAL;
