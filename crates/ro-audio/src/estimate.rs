@@ -11,12 +11,47 @@ pub struct ShotEstimate {
     /// Bearing relative to the view, degrees, + = shooter to the right: θ in [−90, 90] and its
     /// front/back mirror. Stereo cannot tell them apart.
     pub rel_bearing_deg: [f32; 2],
-    pub distance_m: f32,
-    pub distance_range_m: (f32, f32),
+    /// None when the report is not one the level tables were measured on (see `Locator`'s bright
+    /// reports): a silenced shot at 25 m reads like an AK at 300 m.
+    pub distance: Option<Distance>,
     /// hi_lo says near clip but early/late says distant clip: anywhere from ~100 to ~200 m.
     pub near_switch: bool,
     /// 0–1: how far the onset rose over the background, discounted by the width of the range.
     pub confidence: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Distance {
+    pub center_m: f32,
+    pub range_m: (f32, f32),
+}
+
+/// For a report the level tables were not measured on, which `Locator` only accepts close in (a
+/// silenced report is inaudible past ~25 m): the bearing from the near ILD table, and no distance.
+pub fn estimate_close_without_distance(detection: &Detection, profile: &AudioProfile) -> ShotEstimate {
+    let f = &detection.features;
+    let sin = lateral(&profile.ild.near, f.ild20_db);
+    let (front, back) = bearing_pair(f.ild20_db, sin);
+    ShotEstimate {
+        utc_ms: detection.utc_100ns.div_euclid(10_000),
+        ild_db: f.ild20_db,
+        level_db: f.level100_db,
+        rel_bearing_deg: [front as f32, back as f32],
+        distance: None,
+        near_switch: false,
+        confidence: rise_confidence(f) as f32,
+    }
+}
+
+/// ILD positive means the shooter is on the left, which is a negative bearing.
+fn bearing_pair(ild_db: f32, sin: f64) -> (f64, f64) {
+    let front = -f64::from(ild_db.signum()) * sin.asin().to_degrees();
+    let back = if front >= 0.0 { 180.0 - front } else { -180.0 - front };
+    (front, back)
+}
+
+fn rise_confidence(f: &ShotFeatures) -> f64 {
+    ((f64::from(f.rise_db) - 12.0) / 12.0).clamp(0.25, 1.0)
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -37,12 +72,8 @@ pub fn estimate(detection: &Detection, profile: &AudioProfile) -> ShotEstimate {
         distance = distances(f.level100_db, sin, zone, profile);
     }
     let (center, lo, hi) = distance;
-
-    // ILD positive means the shooter is on the left, which is a negative bearing.
-    let front = -f64::from(f.ild20_db.signum()) * sin.asin().to_degrees();
-    let back = if front >= 0.0 { 180.0 - front } else { -180.0 - front };
-
-    let rise = ((f64::from(f.rise_db) - 12.0) / 12.0).clamp(0.25, 1.0);
+    let (front, back) = bearing_pair(f.ild20_db, sin);
+    let rise = rise_confidence(f);
     let spread = (hi - lo) / center.max(1.0);
 
     ShotEstimate {
@@ -50,8 +81,7 @@ pub fn estimate(detection: &Detection, profile: &AudioProfile) -> ShotEstimate {
         ild_db: f.ild20_db,
         level_db: f.level100_db,
         rel_bearing_deg: [front as f32, back as f32],
-        distance_m: center as f32,
-        distance_range_m: (lo as f32, hi as f32),
+        distance: Some(Distance { center_m: center as f32, range_m: (lo as f32, hi as f32) }),
         near_switch: zone == Zone::Ambiguous,
         confidence: (rise / (1.0 + spread)) as f32,
     }
@@ -122,7 +152,7 @@ mod tests {
         let e = estimate(&detection(38.0, -33.8 - 2.85, -12.0, 0.0), &AudioProfile::builtin());
         assert!((e.rel_bearing_deg[0] + 90.0).abs() < 8.0, "{e:?}");
         assert!((e.rel_bearing_deg[1] + 90.0).abs() < 8.0, "{e:?}");
-        assert!((e.distance_m - 60.0).abs() < 5.0, "{e:?}");
+        assert!((e.distance.unwrap().center_m - 60.0).abs() < 5.0, "{e:?}");
         assert!(!e.near_switch);
     }
 
@@ -130,6 +160,7 @@ mod tests {
     fn a_dark_shot_beyond_the_switch_returns_the_dip_as_a_range() {
         let e = estimate(&detection(-5.6, -42.0, -19.0, 7.0), &AudioProfile::builtin());
         assert!(e.rel_bearing_deg[0] > 0.0 && e.rel_bearing_deg[1] > 90.0, "{e:?}");
-        assert!(e.distance_range_m.0 < 142.0 && e.distance_range_m.1 > 185.0, "{e:?}");
+        let (lo, hi) = e.distance.unwrap().range_m;
+        assert!(lo < 142.0 && hi > 185.0, "{e:?}");
     }
 }

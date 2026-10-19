@@ -43,8 +43,16 @@ fn run(args: &[String]) -> Result<(), String> {
 
     let recording = session::Recording::load(session_dir)?;
     let shots = score::load_shots(shots_csv)?;
-    let mut locator = Locator::new(profile);
-    let located: Vec<_> = recording.blocks().flat_map(|block| locator.push(&block)).collect();
+    let mut locator = Locator::new(profile).keeping_rejections();
+    let mut rejected = Vec::new();
+    let located: Vec<_> = recording
+        .blocks()
+        .flat_map(|block| {
+            let found = locator.push(&block);
+            rejected.extend(locator.take_rejected());
+            found
+        })
+        .collect();
 
     let minutes = recording.samples.len() as f64 / 2.0 / f64::from(recording.rate) / 60.0;
     let in_recording: Vec<score::Shot> = shots.into_iter().filter(|s| covers(&recording, s.utc_ms)).collect();
@@ -53,10 +61,13 @@ fn run(args: &[String]) -> Result<(), String> {
     println!("{} — {} shots in the recording, {} detections, {minutes:.1} min", session_dir.display(), in_recording.len(), located.len());
     print!("{}", score::report(&matched, minutes));
     print!("{}", score::false_positive_delays(&in_recording, &located, &matched.outcomes));
+    print!("{}", score::miss_reasons(&matched.outcomes, &rejected));
     print!("{}", score::summary(&matched));
 
     let out = out.unwrap_or_else(|| session_dir.join("replay_shots.csv"));
     std::fs::write(&out, score::per_shot_csv(&matched.outcomes)).map_err(|e| format!("{}: {e}", out.display()))?;
+    let turned_down = out.with_extension("rejected.csv");
+    std::fs::write(&turned_down, score::rejected_csv(&in_recording, &rejected)).map_err(|e| format!("{}: {e}", turned_down.display()))?;
     let all = out.with_extension("detections.csv");
     std::fs::write(&all, score::detections_csv(&in_recording, &located, &matched.outcomes)).map_err(|e| format!("{}: {e}", all.display()))?;
     println!("per-shot -> {}, every detection -> {}", out.display(), all.display());

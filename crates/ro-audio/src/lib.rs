@@ -16,8 +16,8 @@ mod table;
 
 pub use block::AudioBlock;
 pub use detect::{Detection, Detector, ShotFeatures};
-pub use estimate::{estimate, ShotEstimate};
+pub use estimate::{estimate, Distance, ShotEstimate};
 pub use feed::ShotFeed;
-pub use locator::{Located, Locator};
+pub use locator::{Located, Locator, Rejection};
 pub use profile::AudioProfile;
 pub use table::Table;

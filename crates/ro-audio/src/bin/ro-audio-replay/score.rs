@@ -3,7 +3,7 @@
 use std::fmt::Write as _;
 use std::path::Path;
 
-use ro_audio::Located;
+use ro_audio::{Detection, Located, Rejection};
 
 /// A detection belongs to a shot when its onset lands this long after the server's fire time:
 /// network plus pipeline latency is 105–116 ms, and distant clips lead in up to ~50 ms later.
@@ -50,11 +50,11 @@ impl Outcome<'_> {
     }
 
     fn distance_error(&self) -> Option<f64> {
-        Some(f64::from(self.found?.estimate.distance_m) - self.shot.distance_m)
+        Some(f64::from(self.found?.estimate.distance?.center_m) - self.shot.distance_m)
     }
 
     fn in_range(&self) -> Option<bool> {
-        let (lo, hi) = self.found?.estimate.distance_range_m;
+        let (lo, hi) = self.found?.estimate.distance?.range_m;
         Some(f64::from(lo) - 1.0 <= self.shot.distance_m && self.shot.distance_m <= f64::from(hi) + 1.0)
     }
 }
@@ -188,13 +188,53 @@ pub fn report(matched: &Matched<'_>, minutes: f64) -> String {
     out
 }
 
+/// Why each missed shot was missed: the detector never fired in its window, or it did and the
+/// locator's filter turned the onset down.
+pub fn miss_reasons(outcomes: &[Outcome<'_>], rejected: &[(Detection, Rejection)]) -> String {
+    let (mut silent, mut bright, mut echo) = (0, 0, 0);
+    for o in outcomes.iter().filter(|o| o.found.is_none()) {
+        let why = rejected.iter().find(|(d, _)| {
+            (MATCH_FROM_MS..=MATCH_TO_MS).contains(&(d.utc_100ns as f64 / 10_000.0 - o.shot.utc_ms))
+        });
+        match why.map(|(_, r)| *r) {
+            None => silent += 1,
+            Some(Rejection::Bright) => bright += 1,
+            Some(Rejection::Echo) => echo += 1,
+        }
+    }
+    format!("missed: no onset {silent}, rejected as bright {bright}, rejected as echo {echo}\n")
+}
+
+/// Every onset the filter turned down, beside the latest shot fired before it.
+pub fn rejected_csv(shots: &[Shot], rejected: &[(Detection, Rejection)]) -> String {
+    let mut out = String::from("utc_ms,reason,after_shot_ms,shot_id,shot_distance_m,level100_db,ild20_db,hi_lo_db,early_late_db,rise_db\n");
+    for (d, why) in rejected {
+        let t = d.utc_100ns as f64 / 10_000.0;
+        let shot = shots.iter().filter(|s| !s.own && s.utc_ms <= t).max_by(|a, b| a.utc_ms.total_cmp(&b.utc_ms));
+        let f = &d.features;
+        let _ = writeln!(
+            out,
+            "{t:.1},{why:?},{:.1},{},{},{:.2},{:.2},{:.2},{:.2},{:.1}",
+            shot.map_or(f64::NAN, |s| t - s.utc_ms),
+            shot.map_or("", |s| s.id.as_str()),
+            shot.map_or(f64::NAN, |s| s.distance_m),
+            f.level100_db,
+            f.ild20_db,
+            f.hi_lo_db,
+            f.early_late_db,
+            f.rise_db
+        );
+    }
+    out
+}
+
 /// One `key=value` line for score/run.sh to compare against its baseline.
 pub fn summary(matched: &Matched<'_>) -> String {
     let found: Vec<&Outcome> = matched.outcomes.iter().filter(|o| o.found.is_some()).collect();
     let bearing: Vec<f64> = found.iter().filter_map(|o| o.bearing_error()).collect();
     let distance: Vec<f64> = found.iter().filter_map(|o| o.distance_error().map(f64::abs)).collect();
     format!(
-        "SUMMARY recall={} shots={} fp={} own={}/{} bearing_p50={:.1} bearing_p90={:.1} dist_p50={:.1} dist_p90={:.1}\n",
+        "SUMMARY recall={} shots={} fp={} own={}/{} bearing_p50={:.1} bearing_p90={:.1} dist_p50={:.1} dist_p90={:.1} dist_unknown={}\n",
         found.len(),
         matched.outcomes.len(),
         matched.false_positives,
@@ -203,7 +243,8 @@ pub fn summary(matched: &Matched<'_>) -> String {
         percentile(&bearing, 50.0),
         percentile(&bearing, 90.0),
         percentile(&distance, 50.0),
-        percentile(&distance, 90.0)
+        percentile(&distance, 90.0),
+        found.len() - distance.len()
     )
 }
 
@@ -219,6 +260,7 @@ pub fn per_shot_csv(outcomes: &[Outcome<'_>]) -> String {
             None => out.push_str(",,,,,,,,,,,,,,\n"),
             Some(l) => {
                 let (f, e) = (&l.detection.features, &l.estimate);
+                let (center, (lo, hi)) = e.distance.map_or((f32::NAN, (f32::NAN, f32::NAN)), |d| (d.center_m, d.range_m));
                 let _ = writeln!(
                     out,
                     ",{:.1},{:.2},{:.2},{:.2},{:.2},{:.1},{:.1},{:.1},{:.1},{:.1},{:.1},{:.1},{},{:.2}",
@@ -231,9 +273,9 @@ pub fn per_shot_csv(outcomes: &[Outcome<'_>]) -> String {
                     e.rel_bearing_deg[0],
                     e.rel_bearing_deg[1],
                     o.bearing_error().unwrap_or(f64::NAN),
-                    e.distance_m,
-                    e.distance_range_m.0,
-                    e.distance_range_m.1,
+                    center,
+                    lo,
+                    hi,
                     e.near_switch,
                     e.confidence
                 );
