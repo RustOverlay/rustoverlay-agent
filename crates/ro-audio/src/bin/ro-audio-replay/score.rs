@@ -9,6 +9,11 @@ use ro_audio::Located;
 /// network plus pipeline latency is 105–116 ms, and distant clips lead in up to ~50 ms later.
 const MATCH_FROM_MS: f64 = 60.0;
 const MATCH_TO_MS: f64 = 260.0;
+/// The player's own gun plays on their client at once; the server logs it a half-RTT later.
+const OWN_FROM_MS: f64 = -200.0;
+const OWN_TO_MS: f64 = 100.0;
+/// Bot shots this close in fire time from different shooters count as overlapping fire.
+const OVERLAP_MS: f64 = 150.0;
 const BANDS: [(f64, f64, &str); 4] = [(0.0, 40.0, "<40 m"), (40.0, 125.0, "40-125 m"), (125.0, 250.0, "125-250 m"), (250.0, f64::INFINITY, ">=250 m")];
 
 pub struct Shot {
@@ -16,6 +21,21 @@ pub struct Shot {
     pub utc_ms: f64,
     pub distance_m: f64,
     pub rel_deg: f64,
+    /// The listener's own gun (CalibMod `source=own`); scored apart from the bots' shots.
+    pub own: bool,
+    pub shooter_id: u32,
+    /// 0 for a single shot or a burst's first round.
+    pub burst_index: u32,
+    pub overlapped: bool,
+}
+
+/// What the matcher made of one session.
+pub struct Matched<'a> {
+    pub outcomes: Vec<Outcome<'a>>,
+    pub own_total: usize,
+    /// Own shots the locator surfaced as gunshots; it should report none.
+    pub own_surfaced: usize,
+    pub false_positives: usize,
 }
 
 pub struct Outcome<'a> {
@@ -45,14 +65,36 @@ pub fn load_shots(path: &Path) -> Result<Vec<Shot>, String> {
     let header: Vec<&str> = lines.next().ok_or("shots csv: empty")?.split(',').collect();
     let col = |name: &str| header.iter().position(|h| *h == name).ok_or(format!("shots csv: no {name} column"));
     let (id, utc, dist, rel) = (col("shot_id")?, col("utc_ms")?, col("distance_m")?, col("bearing_rel_deg")?);
-    lines
+    // Absent from CSVs written before ambush mode, which held only single bot shots.
+    let (source, shooter, burst) = (col("source").ok(), col("shooter_id").ok(), col("burst_index").ok());
+    let mut shots = lines
         .filter(|l| !l.trim().is_empty())
         .map(|line| {
             let cells: Vec<&str> = line.split(',').collect();
             let num = |i: usize| cells.get(i).and_then(|c| c.parse::<f64>().ok()).ok_or(format!("shots csv: bad row '{line}'"));
-            Ok(Shot { id: cells[id].to_owned(), utc_ms: num(utc)?, distance_m: num(dist)?, rel_deg: num(rel)? })
+            let int = |i: Option<usize>| i.and_then(|i| cells.get(i)).and_then(|c| c.parse::<u32>().ok()).unwrap_or(0);
+            Ok(Shot {
+                id: cells[id].to_owned(),
+                utc_ms: num(utc)?,
+                distance_m: num(dist)?,
+                rel_deg: num(rel)?,
+                own: source.and_then(|i| cells.get(i)).is_some_and(|s| *s == "own"),
+                shooter_id: int(shooter),
+                burst_index: int(burst),
+                overlapped: false,
+            })
         })
-        .collect()
+        .collect::<Result<Vec<_>, String>>()?;
+    mark_overlaps(&mut shots);
+    Ok(shots)
+}
+
+fn mark_overlaps(shots: &mut [Shot]) {
+    let bots: Vec<(f64, u32)> = shots.iter().filter(|s| !s.own).map(|s| (s.utc_ms, s.shooter_id)).collect();
+    for shot in shots.iter_mut().filter(|s| !s.own) {
+        shot.overlapped =
+            bots.iter().any(|&(t, by)| by != shot.shooter_id && (t - shot.utc_ms).abs() <= OVERLAP_MS);
+    }
 }
 
 /// Where unmatched detections fall after the latest shot fired before them, as "label count" pairs.
@@ -77,34 +119,51 @@ pub fn false_positive_delays(shots: &[Shot], located: &[Located], outcomes: &[Ou
     )
 }
 
-/// Each shot takes the earliest unclaimed detection in its window.
-pub fn match_shots<'a>(shots: &'a [Shot], located: &'a [Located]) -> (Vec<Outcome<'a>>, usize) {
+/// Each bot shot takes the earliest unclaimed detection in its window; own shots then take theirs
+/// from what is left, so a missed bot shot is never excused by a nearby own shot.
+pub fn match_shots<'a>(shots: &'a [Shot], located: &'a [Located]) -> Matched<'a> {
     let mut claimed = vec![false; located.len()];
-    let outcomes = shots
-        .iter()
-        .map(|shot| {
-            let hit = located.iter().enumerate().find(|(i, l)| {
-                let delay = l.detection.utc_100ns as f64 / 10_000.0 - shot.utc_ms;
-                !claimed[*i] && (MATCH_FROM_MS..=MATCH_TO_MS).contains(&delay)
-            });
-            let found = hit.map(|(i, l)| {
-                claimed[i] = true;
-                l
-            });
-            Outcome { shot, found }
+    let mut claim = |shot: &Shot, window: std::ops::RangeInclusive<f64>| {
+        let hit = located.iter().enumerate().find(|(i, l)| {
+            let delay = l.detection.utc_100ns as f64 / 10_000.0 - shot.utc_ms;
+            !claimed[*i] && window.contains(&delay)
+        });
+        hit.map(|(i, l)| {
+            claimed[i] = true;
+            l
         })
-        .collect();
-    (outcomes, claimed.iter().filter(|c| !**c).count())
+    };
+    let outcomes: Vec<Outcome> =
+        shots.iter().filter(|s| !s.own).map(|shot| Outcome { shot, found: claim(shot, MATCH_FROM_MS..=MATCH_TO_MS) }).collect();
+    let own: Vec<&Shot> = shots.iter().filter(|s| s.own).collect();
+    let own_surfaced = own.iter().filter(|shot| claim(shot, OWN_FROM_MS..=OWN_TO_MS).is_some()).count();
+    Matched { outcomes, own_total: own.len(), own_surfaced, false_positives: claimed.iter().filter(|c| !**c).count() }
 }
 
-pub fn report(outcomes: &[Outcome<'_>], false_positives: usize, minutes: f64) -> String {
+pub fn report(matched: &Matched<'_>, minutes: f64) -> String {
+    let outcomes = &matched.outcomes;
     let hits = outcomes.iter().filter(|o| o.found.is_some()).count();
     let mut out = format!(
-        "recall {hits}/{} ({:.1}%), false positives {false_positives} ({:.1}/min)\n",
+        "recall {hits}/{} ({:.1}%), false positives {} ({:.1}/min)\n",
         outcomes.len(),
         100.0 * hits as f64 / outcomes.len().max(1) as f64,
-        false_positives as f64 / minutes.max(1e-9)
+        matched.false_positives,
+        matched.false_positives as f64 / minutes.max(1e-9)
     );
+    let recall = |pick: &dyn Fn(&Shot) -> bool| {
+        let subset: Vec<&Outcome> = outcomes.iter().filter(|o| pick(o.shot)).collect();
+        (subset.iter().filter(|o| o.found.is_some()).count(), subset.len())
+    };
+    let (single, single_n) = recall(&|s| s.burst_index == 0 && !s.overlapped);
+    let (follow, follow_n) = recall(&|s| s.burst_index > 0);
+    let (over, over_n) = recall(&|s| s.overlapped);
+    if follow_n + over_n + matched.own_total > 0 {
+        let _ = writeln!(
+            out,
+            "recall: single {single}/{single_n}, burst follow-ups {follow}/{follow_n}, overlapping {over}/{over_n}; own gun surfaced {}/{}",
+            matched.own_surfaced, matched.own_total
+        );
+    }
     let _ = writeln!(out, "{:<10} {:>3}  {:>18}  {:>22}  {:>8}", "band", "n", "bearing err med/p90", "distance |err| med/p90", "in range");
     for (lo, hi, name) in BANDS {
         let band: Vec<&Outcome> = outcomes.iter().filter(|o| o.shot.distance_m >= lo && o.shot.distance_m < hi && o.found.is_some()).collect();
@@ -127,6 +186,25 @@ pub fn report(outcomes: &[Outcome<'_>], false_positives: usize, minutes: f64) ->
         );
     }
     out
+}
+
+/// One `key=value` line for score/run.sh to compare against its baseline.
+pub fn summary(matched: &Matched<'_>) -> String {
+    let found: Vec<&Outcome> = matched.outcomes.iter().filter(|o| o.found.is_some()).collect();
+    let bearing: Vec<f64> = found.iter().filter_map(|o| o.bearing_error()).collect();
+    let distance: Vec<f64> = found.iter().filter_map(|o| o.distance_error().map(f64::abs)).collect();
+    format!(
+        "SUMMARY recall={} shots={} fp={} own={}/{} bearing_p50={:.1} bearing_p90={:.1} dist_p50={:.1} dist_p90={:.1}\n",
+        found.len(),
+        matched.outcomes.len(),
+        matched.false_positives,
+        matched.own_surfaced,
+        matched.own_total,
+        percentile(&bearing, 50.0),
+        percentile(&bearing, 90.0),
+        percentile(&distance, 50.0),
+        percentile(&distance, 90.0)
+    )
 }
 
 pub fn per_shot_csv(outcomes: &[Outcome<'_>]) -> String {

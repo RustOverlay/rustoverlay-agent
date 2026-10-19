@@ -244,8 +244,11 @@ name = "calib-recorder"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "png",
  "ro-audio",
+ "ro-capture",
  "ro-core",
+ "ro-vision",
  "serde_json",
  "windows",
 ]

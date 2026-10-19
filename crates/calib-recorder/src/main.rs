@@ -4,6 +4,8 @@
 // and tools/calib/align.py.
 
 #[cfg(windows)]
+mod compass;
+#[cfg(windows)]
 mod endpoint;
 #[cfg(windows)]
 mod recorder;
@@ -44,12 +46,14 @@ mod record {
     use windows::core::BOOL;
     use windows::Win32::System::Console::SetConsoleCtrlHandler;
 
+    use crate::compass::CompassRecorder;
     use crate::recorder::Recorder;
     use crate::session::utc_iso;
     use crate::{endpoint, session};
 
-    const USAGE: &str = "usage: calib-recorder [--out DIR] [--seconds N] [--process [NAME|PID] | --game]\n  \
-        --process/--game capture only that process tree (default RustClient.exe); without them, the whole default endpoint";
+    const USAGE: &str = "usage: calib-recorder [--out DIR] [--seconds N] [--process [NAME|PID] | --game] [--no-compass]\n  \
+        --process/--game capture only that process tree (default RustClient.exe); without them, the whole default endpoint\n  \
+        the HUD compass strip is recorded beside the audio unless --no-compass";
     const POLL: Duration = Duration::from_millis(5);
     const STATUS_EVERY: Duration = Duration::from_secs(5);
 
@@ -61,10 +65,10 @@ mod record {
     }
 
     pub fn run(args: &[String]) -> Result<(), String> {
-        let Args { out, seconds, process } = parse_args(args)?;
+        let Args { out, seconds, process, compass } = parse_args(args)?;
         let target = process.as_deref().map(process::find).transpose()?;
         let dir = out.unwrap_or_else(|| {
-            data_directory().join("calib").join(chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string())
+            data_directory().join("audio-corpus").join(chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string())
         });
         std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         unsafe { SetConsoleCtrlHandler(Some(on_console_ctrl), true) }.map_err(|e| format!("SetConsoleCtrlHandler: {e}"))?;
@@ -100,11 +104,17 @@ mod record {
         });
 
         capture.start()?;
+        let strip = if compass { Some(CompassRecorder::start(&dir, &STOP)?) } else { None };
         let outcome = capture_loop(&capture, &mut recorder, seconds);
+        // A --seconds deadline ends the audio loop without Ctrl+C; the compass thread waits on this flag.
+        STOP.store(true, Ordering::SeqCst);
         drop(capture);
 
         let stopped = recorder.now_utc_100ns();
         info["stats"] = recorder.finish()?;
+        if let Some(strip) = strip {
+            info["compass_frames"] = json!(strip.finish()?);
+        }
         info["stop_utc"] = json!(utc_iso(stopped));
         info["stop_utc_100ns"] = json!(stopped);
         if let Err(e) = &outcome {
@@ -157,10 +167,11 @@ mod record {
         out: Option<PathBuf>,
         seconds: Option<u64>,
         process: Option<String>,
+        compass: bool,
     }
 
     fn parse_args(args: &[String]) -> Result<Args, String> {
-        let mut parsed = Args { out: None, seconds: None, process: None };
+        let mut parsed = Args { out: None, seconds: None, process: None, compass: true };
         let mut rest = args.iter().peekable();
         while let Some(flag) = rest.next() {
             let mut value = || rest.next().ok_or_else(|| format!("{flag} needs a value\n{USAGE}"));
@@ -171,6 +182,7 @@ mod record {
                     parsed.seconds = Some(text.parse().map_err(|_| format!("--seconds: '{text}' is not a whole number"))?);
                 }
                 "--game" => parsed.process = Some(process::GAME_CLIENT.to_owned()),
+                "--no-compass" => parsed.compass = false,
                 "--process" => {
                     let name = rest.next_if(|next| !next.starts_with("--"));
                     parsed.process = Some(name.map_or(process::GAME_CLIENT.to_owned(), Clone::clone));

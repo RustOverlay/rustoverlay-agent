@@ -48,16 +48,17 @@ fn run(args: &[String]) -> Result<(), String> {
 
     let minutes = recording.samples.len() as f64 / 2.0 / f64::from(recording.rate) / 60.0;
     let in_recording: Vec<score::Shot> = shots.into_iter().filter(|s| covers(&recording, s.utc_ms)).collect();
-    let (outcomes, false_positives) = score::match_shots(&in_recording, &located);
+    let matched = score::match_shots(&in_recording, &located);
 
     println!("{} — {} shots in the recording, {} detections, {minutes:.1} min", session_dir.display(), in_recording.len(), located.len());
-    print!("{}", score::report(&outcomes, false_positives, minutes));
-    print!("{}", score::false_positive_delays(&in_recording, &located, &outcomes));
+    print!("{}", score::report(&matched, minutes));
+    print!("{}", score::false_positive_delays(&in_recording, &located, &matched.outcomes));
+    print!("{}", score::summary(&matched));
 
     let out = out.unwrap_or_else(|| session_dir.join("replay_shots.csv"));
-    std::fs::write(&out, score::per_shot_csv(&outcomes)).map_err(|e| format!("{}: {e}", out.display()))?;
+    std::fs::write(&out, score::per_shot_csv(&matched.outcomes)).map_err(|e| format!("{}: {e}", out.display()))?;
     let all = out.with_extension("detections.csv");
-    std::fs::write(&all, score::detections_csv(&in_recording, &located, &outcomes)).map_err(|e| format!("{}: {e}", all.display()))?;
+    std::fs::write(&all, score::detections_csv(&in_recording, &located, &matched.outcomes)).map_err(|e| format!("{}: {e}", all.display()))?;
     println!("per-shot -> {}, every detection -> {}", out.display(), all.display());
     Ok(())
 }
